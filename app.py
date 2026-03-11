@@ -4,6 +4,7 @@ from google.genai import types
 from PIL import Image
 import json
 import os
+import requests
 
 # --- 1. PRO APP CONFIG ---
 st.set_page_config(page_title="Pure Agency Command", layout="wide", initial_sidebar_state="expanded")
@@ -57,10 +58,32 @@ if check_password():
         except Exception as e:
             return f"❌ **Error:** {str(e)}"
 
-    # --- 5. SIDEBAR NAVIGATION (All 5 Tools) ---
+    # --- 5. MEISTERTASK INBOUND AUTOMATION HANDLER ---
+    # Triggered by URL params like: ?task_topic=NewPromo&brand=PureConcepts
+    query_params = st.query_params
+    if "task_topic" in query_params:
+        st.success("📥 MeisterTask Request Received")
+        mt_topic = query_params["task_topic"]
+        mt_brand = query_params.get("brand", "Default")
+        
+        if mt_brand in st.session_state.clients:
+            st.subheader(f"Auto-Drafting for: {mt_brand}")
+            c_data = st.session_state.clients[mt_brand]
+            sys_inst = f"{c_data.get('gem_instructions','')}\n{c_data.get('voice_dna','')}"
+            
+            with st.spinner("Processing MeisterTask request..."):
+                draft = ask_gemini(f"Create a social media post for this task: {mt_topic}", sys_inst)
+                st.info("MeisterTask Draft Generated:")
+                st.code(draft)
+        else:
+            st.error(f"Brand '{mt_brand}' not found in database.")
+        st.divider()
+
+    # --- 6. SIDEBAR NAVIGATION ---
     st.sidebar.title("🚀 Elite Command")
     mode = st.sidebar.radio("CHOOSE TOOL:", [
         "Content & Mockup Factory", 
+        "Voice Clone Lab 🎙️",
         "Viral Hook Lab 🔥", 
         "Brand Guardian 🛡️",
         "Strategic Hub (SWOT/Comp)", 
@@ -69,14 +92,15 @@ if check_password():
 
     client_list = list(st.session_state.clients.keys())
 
-    # --- TOOL 1: CONTENT & MOCKUP ---
+    # --- TOOL 1: CONTENT & MOCKUP FACTORY ---
     if mode == "Content & Mockup Factory":
         st.title("Content & Mockup Factory ✍️📱")
-        if not client_list: st.warning("Add a brand in 'Manage Clients' first!")
+        if not client_list: st.warning("Add a brand first!")
         else:
             col1, col2 = st.columns([1, 1])
             with col1:
                 selected = st.selectbox("Select Brand:", client_list)
+                c_data = st.session_state.clients[selected]
                 platform = st.selectbox("Platform:", ["Instagram", "LinkedIn", "Facebook"])
                 topic = st.text_area("What are we promoting?")
                 up_file = st.file_uploader("Upload Image", type=["jpg", "png"])
@@ -85,9 +109,11 @@ if check_password():
                 
             if st.button("Generate & Preview", type="primary"):
                 with st.spinner("Drafting..."):
+                    sys_inst = f"{c_data.get('gem_instructions','')}\n{c_data.get('voice_dna','')}"
                     prompt = f"Write a {platform} post about {topic}."
                     if ab_test: prompt += " Provide 3 versions: Benefit-driven, Story-driven, and Punchy."
-                    res = ask_gemini(prompt, st.session_state.clients[selected]['gem_instructions'], img)
+                    
+                    res = ask_gemini(prompt, sys_inst, img)
                     with col2:
                         st.subheader(f"{platform} Preview")
                         with st.container(border=True):
@@ -96,52 +122,72 @@ if check_password():
                             st.write(res)
                             st.caption("❤️ 💬 🚀 Liked by AI and 1,240 others")
 
-    # --- TOOL 2: VIRAL HOOK LAB ---
+    # --- TOOL 2: VOICE CLONE LAB ---
+    elif mode == "Voice Clone Lab 🎙️":
+        st.title("Voice Clone Lab 🎙️")
+        if client_list:
+            selected = st.selectbox("Cloning Voice for:", client_list)
+            past_posts = st.text_area("Paste 3 successful posts here (separated by lines):", height=300)
+            if st.button("Analyze & Clone DNA"):
+                with st.spinner("Analyzing linguistic patterns..."):
+                    dna = ask_gemini(f"Analyze the writing style of these posts and create a style guide: {past_posts}", "You are a linguistic expert.")
+                    st.session_state.clients[selected]['voice_dna'] = dna
+                    save_db(st.session_state.clients)
+                    st.success("DNA Saved!")
+                    st.write(dna)
+
+    # --- TOOL 3: VIRAL HOOK LAB ---
     elif mode == "Viral Hook Lab 🔥":
         st.title("Viral Hook Lab 🔥")
-        if not client_list: st.warning("Add a brand first!")
-        else:
+        if client_list:
             selected = st.selectbox("Brand Context:", client_list)
-            boring_title = st.text_input("Enter your 'boring' headline:")
-            if st.button("Generate 10 Viral Hooks"):
-                st.write(ask_gemini(f"Generate 10 viral hooks for: {boring_title}", st.session_state.clients[selected]['gem_instructions']))
+            topic = st.text_input("Enter topic:")
+            if st.button("Generate Hooks"):
+                st.write(ask_gemini(f"Generate 10 viral hooks for: {topic}", st.session_state.clients[selected]['gem_instructions']))
 
-    # --- TOOL 3: BRAND GUARDIAN ---
+    # --- TOOL 4: BRAND GUARDIAN ---
     elif mode == "Brand Guardian 🛡️":
         st.title("Brand Guardian 🛡️")
         if client_list:
-            selected = st.selectbox("Check against brand:", client_list)
-            check_img = st.file_uploader("Upload Graphic", type=["jpg", "png"])
-            if st.button("Run Audit") and check_img:
+            selected = st.selectbox("Audit for:", client_list)
+            check_img = st.file_uploader("Graphic", type=["jpg", "png"])
+            if st.button("Audit") and check_img:
                 st.info(ask_gemini("Audit this image for brand consistency.", st.session_state.clients[selected]['gem_instructions'], Image.open(check_img)))
 
-    # --- TOOL 4: STRATEGIC HUB ---
+    # --- TOOL 5: STRATEGIC HUB ---
     elif mode == "Strategic Hub (SWOT/Comp)":
         st.title("Strategic Analysis 🧠")
         if client_list:
-            selected = st.selectbox("Select Brand:", client_list)
-            t1, t2 = st.tabs(["Competitor Analysis", "SWOT"])
+            selected = st.selectbox("Brand:", client_list)
+            t1, t2 = st.tabs(["Comp Analysis", "SWOT"])
             with t1:
-                comp_img = st.file_uploader("Competitor Image", type=["jpg", "png"])
+                comp_img = st.file_uploader("Competitor Post", type=["jpg", "png"])
                 if st.button("Analyze"):
-                    st.write(ask_gemini("How can we beat this competitor?", st.session_state.clients[selected]['gem_instructions'], Image.open(comp_img) if comp_img else None))
+                    st.write(ask_gemini("How can we beat this?", st.session_state.clients[selected]['gem_instructions'], Image.open(comp_img) if comp_img else None))
             with t2:
-                if st.button("Generate SWOT"):
-                    st.markdown(ask_gemini("Generate a full SWOT analysis.", st.session_state.clients[selected]['gem_instructions']))
+                if st.button("Run SWOT"):
+                    st.markdown(ask_gemini("Full SWOT Analysis.", st.session_state.clients[selected]['gem_instructions']))
 
-    # --- TOOL 5: MANAGE CLIENTS ---
+    # --- TOOL 6: MANAGE CLIENTS ---
     elif mode == "Manage Clients & Gems":
         st.title("Manage Clients 👤💎")
         with st.form("client_form"):
             name = st.text_input("Brand Name")
-            gem = st.text_area("Paste Custom Gem Instructions", height=250)
+            gem = st.text_area("Gem Instructions", height=250)
             if st.form_submit_button("Save Brand"):
-                st.session_state.clients[name] = {"gem_instructions": gem}
+                st.session_state.clients[name] = {"gem_instructions": gem, "voice_dna": ""}
                 save_db(st.session_state.clients)
                 st.success(f"Saved {name}!")
                 st.rerun()
+        st.divider()
         for b_name in list(st.session_state.clients.keys()):
-            if st.button(f"Delete {b_name}"):
+            c1, c2 = st.columns([4, 1])
+            c1.write(f"🏷️ **{b_name}**")
+            if c2.button("Delete", key=f"del_{b_name}"):
                 del st.session_state.clients[b_name]
                 save_db(st.session_state.clients)
                 st.rerun()
+
+    if st.sidebar.button("Logout"):
+        st.session_state.clear()
+        st.rerun()
