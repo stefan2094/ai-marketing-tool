@@ -61,96 +61,55 @@ if check_password():
     # --- 5. MEISTERTASK & SOCIALPILOT HANDLER ---
     query_params = st.query_params
     if "task_topic" in query_params:
-        st.success("📥 MeisterTask Request Received")
+        st.success("📥 Incoming Automation Task")
         mt_topic = query_params["task_topic"]
         mt_brand = query_params.get("brand", "Default")
-        mt_date = query_params.get("due_date", "Not Set") # Grab the date from MeisterTask
+        mt_date = query_params.get("due_date", "") 
         
         if mt_brand in st.session_state.clients:
-            st.subheader(f"Auto-Drafting for: {mt_brand}")
             c_data = st.session_state.clients[mt_brand]
             sys_inst = f"{c_data.get('gem_instructions','')}\n{c_data.get('voice_dna','')}"
             
-            with st.spinner("AI is crafting the post..."):
-                draft = ask_gemini(f"Create a social media post for this task: {mt_topic}", sys_inst)
-                st.info(f"📅 Scheduled Date: {mt_date}")
+            with st.spinner("AI is generating your scheduled post..."):
+                draft = ask_gemini(f"Write a social media post: {mt_topic}", sys_inst)
+                st.info(f"📅 Intended Date: {mt_date}")
                 st.write(draft)
-                
-                # NEW: Button to manually confirm the schedule to SocialPilot
-                if st.button("🚀 Confirm & Schedule to SocialPilot"):
-                    st.success("Successfully pushed to SocialPilot!")
-                    # Note: The actual "Push" happens in the Make.com step 4.
+                # This draft is now what Make.com will pick up
+                st.session_state['last_ai_draft'] = draft
         else:
             st.error(f"Brand '{mt_brand}' not found.")
-        st.divider()
 
     # --- 6. SIDEBAR NAVIGATION ---
     st.sidebar.title("🚀 Elite Command")
-    mode = st.sidebar.radio("CHOOSE TOOL:", [
-        "Content & Mockup Factory", 
-        "Voice Clone Lab 🎙️",
-        "Viral Hook Lab 🔥", 
-        "Brand Guardian 🛡️",
-        "Strategic Hub (SWOT/Comp)", 
-        "Manage Clients & Gems"
-    ])
+    mode = st.sidebar.radio("CHOOSE TOOL:", ["Content Factory", "Voice Clone Lab 🎙️", "Manage Clients"])
 
     client_list = list(st.session_state.clients.keys())
 
-    # --- TOOL 1: CONTENT & MOCKUP FACTORY ---
-    if mode == "Content & Mockup Factory":
-        st.title("Content & Mockup Factory ✍️📱")
-        if not client_list: st.warning("Add a brand first!")
-        else:
-            col1, col2 = st.columns([1, 1])
-            with col1:
-                selected = st.selectbox("Select Brand:", client_list)
-                c_data = st.session_state.clients[selected]
-                platform = st.selectbox("Platform:", ["Instagram", "LinkedIn", "Facebook"])
-                topic = st.text_area("What are we promoting?")
-                up_file = st.file_uploader("Upload Image", type=["jpg", "png"])
-                img = Image.open(up_file) if up_file else None
-                
-            if st.button("Generate & Preview", type="primary"):
-                sys_inst = f"{c_data.get('gem_instructions','')}\n{c_data.get('voice_dna','')}"
-                res = ask_gemini(f"Write a {platform} post about {topic}.", sys_inst, img)
-                with col2:
-                    st.subheader(f"{platform} Preview")
-                    with st.container(border=True):
-                        st.markdown(f"**@{selected.replace(' ', '').lower()}**")
-                        if img: st.image(img, use_container_width=True)
-                        st.write(res)
+    if mode == "Content Factory":
+        st.title("Content Factory ✍️")
+        if client_list:
+            selected = st.selectbox("Select Brand:", client_list)
+            topic = st.text_area("What are we promoting?")
+            if st.button("Generate"):
+                res = ask_gemini(topic, st.session_state.clients[selected]['gem_instructions'])
+                st.write(res)
 
-    # --- TOOL 2: VOICE CLONE LAB ---
     elif mode == "Voice Clone Lab 🎙️":
         st.title("Voice Clone Lab 🎙️")
-        if client_list:
-            selected = st.selectbox("Cloning Voice for:", client_list)
-            past_posts = st.text_area("Paste 3 successful posts here:", height=300)
-            if st.button("Analyze & Clone DNA"):
-                dna = ask_gemini(f"Analyze writing style: {past_posts}", "Linguistic Expert")
-                st.session_state.clients[selected]['voice_dna'] = dna
-                save_db(st.session_state.clients)
-                st.success("DNA Saved!")
-                st.write(dna)
+        selected = st.selectbox("Brand:", client_list)
+        past_posts = st.text_area("Paste 3 successful posts:")
+        if st.button("Clone DNA"):
+            dna = ask_gemini(f"Analyze style: {past_posts}", "Linguist")
+            st.session_state.clients[selected]['voice_dna'] = dna
+            save_db(st.session_state.clients)
+            st.success("DNA Saved!")
 
-    # --- TOOL 3: MANAGE CLIENTS ---
-    elif mode == "Manage Clients & Gems":
-        st.title("Manage Clients 👤💎")
-        with st.form("client_form"):
+    elif mode == "Manage Clients":
+        st.title("Manage Clients 👤")
+        with st.form("add"):
             name = st.text_input("Brand Name")
-            gem = st.text_area("Gem Instructions", height=250)
-            if st.form_submit_button("Save Brand"):
+            gem = st.text_area("Instructions")
+            if st.form_submit_button("Save"):
                 st.session_state.clients[name] = {"gem_instructions": gem, "voice_dna": ""}
                 save_db(st.session_state.clients)
                 st.rerun()
-        st.divider()
-        for b_name in list(st.session_state.clients.keys()):
-            if st.button(f"Delete {b_name}"):
-                del st.session_state.clients[b_name]
-                save_db(st.session_state.clients)
-                st.rerun()
-
-    if st.sidebar.button("Logout"):
-        st.session_state.clear()
-        st.rerun()
