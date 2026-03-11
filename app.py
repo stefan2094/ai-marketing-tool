@@ -58,7 +58,7 @@ if check_password():
         except Exception as e:
             return f"❌ **Error:** {str(e)}"
 
-    # --- 5. AUTOMATION HANDLER (MeisterTask -> SocialPilot) ---
+    # --- 5. AUTOMATION HANDLER (MeisterTask -> SocialPilot Ready) ---
     query_params = st.query_params
     if "task_topic" in query_params:
         st.success("📥 Automation Request Received")
@@ -69,14 +69,10 @@ if check_password():
         if mt_brand in st.session_state.clients:
             c_data = st.session_state.clients[mt_brand]
             sys_inst = f"{c_data.get('gem_instructions','')}\n{c_data.get('voice_dna','')}"
-            
             with st.spinner("AI is generating your scheduled post..."):
                 draft = ask_gemini(f"Write a social media post for this task: {mt_topic}", sys_inst)
                 st.info(f"📅 Intended Schedule: {mt_date}")
                 st.write(draft)
-                st.caption("This content is now ready for the SocialPilot bridge.")
-        else:
-            st.error(f"Brand '{mt_brand}' not found in database.")
         st.divider()
 
     # --- 6. SIDEBAR NAVIGATION ---
@@ -123,7 +119,7 @@ if check_password():
             selected = st.selectbox("Cloning Voice for:", client_list)
             past_posts = st.text_area("Paste successful posts (separated by lines):", height=300)
             if st.button("Analyze & Clone DNA"):
-                dna = ask_gemini(f"Analyze writing style: {past_posts}", "Linguist")
+                dna = ask_gemini(f"Analyze writing style and extract linguistic DNA: {past_posts}", "You are a world-class linguistic analyst.")
                 st.session_state.clients[selected]['voice_dna'] = dna
                 save_db(st.session_state.clients)
                 st.success("DNA Saved!")
@@ -133,4 +129,17 @@ if check_password():
     elif mode == "Viral Hook Lab 🔥":
         st.title("Viral Hook Lab 🔥")
         if client_list:
-            selected = st.selectbox("Brand:", client_list)
+            selected = st.selectbox("Brand Context:", client_list)
+            topic = st.text_input("Enter your topic/headline:")
+            if st.button("Generate 10 Viral Hooks"):
+                sys_inst = st.session_state.clients[selected]['gem_instructions']
+                st.write(ask_gemini(f"Generate 10 high-psychology viral hooks for: {topic}. Use the brand tone provided.", sys_inst))
+
+    # --- TOOL 4: BRAND GUARDIAN ---
+    elif mode == "Brand Guardian 🛡️":
+        st.title("Brand Guardian 🛡️")
+        if client_list:
+            selected = st.selectbox("Audit against Brand:", client_list)
+            check_img = st.file_uploader("Upload Graphic for Audit", type=["jpg", "png"])
+            if st.button("Run Brand Audit") and check_img:
+                sys_inst = st.session_state.clients
