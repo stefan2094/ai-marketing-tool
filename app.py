@@ -5,7 +5,7 @@ from PIL import Image
 import json
 import os
 import requests
-from fpdf import FPDF # New for PDF Export
+from fpdf import FPDF
 
 # --- 1. PRO APP CONFIG ---
 st.set_page_config(page_title="Pure Agency Command", layout="wide", initial_sidebar_state="expanded")
@@ -54,40 +54,27 @@ def ask_gemini(prompt, system_instruction, image=None):
     except Exception as e:
         return f"❌ **Error:** {str(e)}"
 
-# --- 5. AUTOMATION HANDLER (MeisterTask -> SocialPilot) ---
-query_params = st.query_params
-if "task_topic" in query_params:
-    st.success("📥 Automation Request Received")
-    mt_topic = query_params["task_topic"]
-    mt_brand = query_params.get("brand", "Default")
-    mt_date = query_params.get("due_date", "No Date Set")
-    
-    if mt_brand in st.session_state.clients:
-        c_data = st.session_state.clients[mt_brand]
-        sys_inst = f"{c_data.get('gem_instructions','')}\n{c_data.get('voice_dna','')}"
-        with st.spinner("AI is generating your SocialPilot post..."):
-            draft = ask_gemini(f"Write a social media post for: {mt_topic}", sys_inst)
-            st.info(f"📅 Scheduled for: {mt_date}")
-            st.code(draft)
-            st.caption("This text is now sent to the next step in Make.com")
-    st.divider()
-
-# --- 6. PDF GENERATOR ---
+# --- 5. PDF GENERATOR (CLEAN VERSION) ---
 def create_pdf(title, content):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
     pdf.cell(200, 10, txt=title, ln=True, align='C')
     pdf.ln(10)
-    pdf.set_font("Arial", size=12)
-    pdf.multi_cell(0, 10, txt=content)
-    return pdf.output(dest='S').encode('latin-1', 'ignore')
+    pdf.set_font("Arial", size=11)
+    
+    # This line removes emojis and special characters that crash standard PDFs
+    safe_text = content.encode('ascii', 'ignore').decode('ascii')
+    
+    pdf.multi_cell(0, 10, txt=safe_text)
+    return pdf.output(dest='S').encode('latin-1')
 
-# --- 7. SIDEBAR NAVIGATION ---
+# --- 6. SIDEBAR NAVIGATION ---
 st.sidebar.title("🚀 Elite Command")
 mode = st.sidebar.radio("CHOOSE TOOL:", [
     "Manage Clients & Gems",
-    "Content & Mockup Factory", 
+    "Content Factory ✍️", 
+    "6-Month Strategy Lab 📅",
     "Voice Clone Lab 🎙️",
     "Viral Hook Lab 🔥", 
     "Brand Guardian 🛡️",
@@ -96,7 +83,7 @@ mode = st.sidebar.radio("CHOOSE TOOL:", [
 
 client_list = list(st.session_state.clients.keys())
 
-# --- TOOL logic ---
+# --- 7. LOGIC FOR TOOLS ---
 if mode == "Manage Clients & Gems":
     st.title("Manage Clients 👤💎")
     with st.form("client_form"):
@@ -105,6 +92,7 @@ if mode == "Manage Clients & Gems":
         if st.form_submit_button("Save Brand"):
             st.session_state.clients[name] = {"gem_instructions": gem, "voice_dna": ""}
             save_db(st.session_state.clients)
+            st.success(f"Saved {name}!")
             st.rerun()
     for b in client_list:
         if st.button(f"Delete {b}"):
@@ -115,29 +103,28 @@ if mode == "Manage Clients & Gems":
 elif not client_list:
     st.warning("Add a brand in 'Manage Clients' first!")
 
-elif mode == "Strategic Hub (SWOT/Comp)":
-    st.title("Strategic Analysis Hub 🧠")
+elif mode == "6-Month Strategy Lab 📅":
+    st.title("Strategy Lab 📅")
     selected = st.selectbox("Select Client:", client_list)
-    t1, t2 = st.tabs(["Competitor Analysis", "SWOT Analysis"])
-    sys_inst = st.session_state.clients[selected]['gem_instructions']
-    
-    with t1:
-        comp_img = st.file_uploader("Upload Competitor Screenshot", type=["jpg", "png"])
-        if st.button("Analyze Competitor"):
-            res = ask_gemini("Analyze this competitor move.", sys_inst, Image.open(comp_img) if comp_img else None)
-            st.write(res)
-            st.download_button("📩 Download PDF Report", create_pdf("Competitor Analysis", res), f"{selected}_Comp_Analysis.pdf")
-            
-    with t2:
-        if st.button("Generate Full SWOT"):
-            res = ask_gemini("Generate a full SWOT analysis.", sys_inst)
-            st.markdown(res)
-            st.download_button("📩 Download PDF Report", create_pdf("SWOT Analysis", res), f"{selected}_SWOT.pdf")
+    duration = st.select_slider("Select Timeline:", options=["1 Month", "2 Months", "3 Months", "6 Months"])
+    goal = st.text_input("Strategic Goal:")
+    if st.button(f"Generate {duration} Plan"):
+        res = ask_gemini(f"Create a detailed {duration} content calendar for {goal}", st.session_state.clients[selected]['gem_instructions'])
+        st.markdown(res)
+        st.download_button("📩 Download PDF Strategy", create_pdf(f"{duration} Strategy", res), f"Strategy_{selected}.pdf")
 
-elif mode == "Content & Mockup Factory":
-    st.title("Content Factory ✍️📱")
+elif mode == "Strategic Hub (SWOT/Comp)":
+    st.title("Strategic Analysis 🧠")
+    selected = st.selectbox("Select Client:", client_list)
+    if st.button("Generate SWOT"):
+        res = ask_gemini("Generate a full SWOT analysis.", st.session_state.clients[selected]['gem_instructions'])
+        st.markdown(res)
+        st.download_button("📩 Download PDF Report", create_pdf("SWOT Report", res), f"SWOT_{selected}.pdf")
+
+elif mode == "Content Factory ✍️":
+    st.title("Content Factory ✍️")
     selected = st.selectbox("Select Brand:", client_list)
-    topic = st.text_area("What are we promoting?")
-    if st.button("Generate"):
+    topic = st.text_area("Topic:")
+    if st.button("Generate Post"):
         sys_inst = f"{st.session_state.clients[selected]['gem_instructions']}\n{st.session_state.clients[selected].get('voice_dna','')}"
         st.write(ask_gemini(f"Write a social post about {topic}.", sys_inst))
