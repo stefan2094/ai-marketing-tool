@@ -5,10 +5,10 @@ from google.genai import types
 from PIL import Image
 import json
 import os
-from fpdf import FPDF
+import io
 
 # --- 1. CONFIG & AUTH ---
-st.set_page_config(page_title="Pure Agency Command", layout="wide")
+st.set_page_config(page_title="Pure Agency Command", layout="wide", page_icon="🎨")
 
 if "password_correct" not in st.session_state:
     st.title("🔐 Agency Command Center")
@@ -37,6 +37,7 @@ def save_db(data):
 if "clients" not in st.session_state:
     st.session_state.clients = load_db()
 
+# AI Text Engine
 def ask_gemini(prompt, sys_inst, image=None):
     client = genai.Client(api_key=API_KEY)
     contents = [prompt]
@@ -52,24 +53,35 @@ def ask_gemini(prompt, sys_inst, image=None):
             if "429" in str(e): time.sleep(3); continue
             return f"❌ Error: {str(e)}"
 
-# --- 3. AUTOMATION LISTENER (MeisterTask Bridge) ---
-q = st.query_params
-if "task_topic" in q:
-    st.info(f"🤖 Automation Active: {q['task_topic']}")
-    if q.get("brand") in st.session_state.clients:
-        brand_data = st.session_state.clients[q["brand"]]
-        if st.button("🚀 Draft & Push to SocialPilot"):
-            res = ask_gemini(f"Draft social post for: {q['task_topic']}", brand_data['gem_instructions'])
-            st.code(res)
-    st.divider()
+# AI Image Engine (Nano Banana 2)
+def generate_image(prompt):
+    client = genai.Client(api_key=API_KEY)
+    try:
+        # Powered by Nano Banana 2
+        response = client.models.generate_image(
+            model='gemini-3-flash-image',
+            prompt=prompt,
+            config=types.GenerateImageConfig(output_mime_type='image/png')
+        )
+        return response.generated_images[0].image_bytes
+    except Exception as e:
+        st.error(f"🎨 Image Error: {str(e)}")
+        return None
 
-# --- 4. NAVIGATION & TOOLS ---
+# --- 3. NAVIGATION ---
 mode = st.sidebar.radio("CHOOSE TOOL:", [
-    "Manage Clients & Gems", "Content Factory ✍️", "6-Month Strategy Lab 📅", 
-    "Voice Clone Lab 🎙️", "Viral Hook Lab 🔥", "Brand Guardian 🛡️", "Strategic Hub"
+    "Manage Clients & Gems", 
+    "Content Factory ✍️", 
+    "AI Image Lab 🎨",
+    "6-Month Strategy Lab 📅", 
+    "Voice Clone Lab 🎙️", 
+    "Viral Hook Lab 🔥", 
+    "Strategic Hub"
 ])
 
 clients = list(st.session_state.clients.keys())
+
+# --- 4. TOOL LOGIC ---
 
 if mode == "Manage Clients & Gems":
     st.title("Manage Clients 👤")
@@ -85,6 +97,30 @@ if mode == "Manage Clients & Gems":
 
 elif not clients: st.warning("Add a brand first!")
 
+elif mode == "AI Image Lab 🎨":
+    st.title("AI Image Lab (Nano Banana) 🎨")
+    sel = st.selectbox("Brand Context:", clients)
+    desc = st.text_area("Describe the image you want:")
+    if st.button("Generate Image"):
+        with st.spinner("Nano Banana is painting..."):
+            img_bytes = generate_image(f"Brand style: {st.session_state.clients[sel]['gem_instructions']}. Image: {desc}")
+            if img_bytes:
+                st.image(img_bytes)
+                st.download_button("Download Image", img_bytes, "ai_image.png", "image/png")
+
+elif mode == "Content Factory ✍️":
+    st.title("Content Factory ✍️")
+    sel = st.selectbox("Brand:", clients)
+    topic = st.text_area("Topic:")
+    gen_img = st.checkbox("Generate matching image with Nano Banana?")
+    if st.button("Generate Post"):
+        text_res = ask_gemini(f"Write a post about {topic}", st.session_state.clients[sel]['gem_instructions'])
+        st.write(text_res)
+        if gen_img:
+            with st.spinner("Generating Image..."):
+                img_bytes = generate_image(f"Social media graphic for: {topic}. Style: {st.session_state.clients[sel]['gem_instructions']}")
+                if img_bytes: st.image(img_bytes)
+
 elif mode == "6-Month Strategy Lab 📅":
     st.title("Strategy Lab 📅")
     sel = st.selectbox("Brand:", clients)
@@ -93,12 +129,13 @@ elif mode == "6-Month Strategy Lab 📅":
     if st.button("Generate Strategy"):
         st.write(ask_gemini(f"Create a {mo} roadmap for {goal}", st.session_state.clients[sel]['gem_instructions']))
 
-elif mode == "Content Factory ✍️":
-    st.title("Content Factory ✍️")
+# (Other tools like SWOT and Hooks remain functional)
+elif mode == "Viral Hook Lab 🔥":
+    st.title("Viral Hook Lab 🔥")
     sel = st.selectbox("Brand:", clients)
-    topic = st.text_area("Topic:")
-    if st.button("Generate"):
-        st.write(ask_gemini(f"Write a post about {topic}", st.session_state.clients[sel]['gem_instructions']))
+    topic = st.text_input("Topic:")
+    if st.button("Generate 10 Hooks"):
+        st.write(ask_gemini(f"10 hooks for {topic}", st.session_state.clients[sel]['gem_instructions']))
 
 elif mode == "Voice Clone Lab 🎙️":
     st.title("Voice Clone Lab 🎙️")
@@ -108,20 +145,6 @@ elif mode == "Voice Clone Lab 🎙️":
         dna = ask_gemini(f"Clone DNA from: {posts}", "Linguist")
         st.session_state.clients[sel]['voice_dna'] = dna
         save_db(st.session_state.clients); st.success("Saved!")
-
-elif mode == "Viral Hook Lab 🔥":
-    st.title("Viral Hook Lab 🔥")
-    sel = st.selectbox("Brand:", clients)
-    topic = st.text_input("Topic:")
-    if st.button("Generate 10 Hooks"):
-        st.write(ask_gemini(f"10 hooks for {topic}", st.session_state.clients[sel]['gem_instructions']))
-
-elif mode == "Brand Guardian 🛡️":
-    st.title("Brand Guardian 🛡️")
-    sel = st.selectbox("Brand:", clients)
-    img = st.file_uploader("Upload Image", type=["png", "jpg"])
-    if st.button("Audit") and img:
-        st.write(ask_gemini("Audit this image.", st.session_state.clients[sel]['gem_instructions'], Image.open(img)))
 
 elif mode == "Strategic Hub":
     st.title("Strategic Hub 🧠")
