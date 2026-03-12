@@ -5,30 +5,22 @@ from google.genai import types
 from PIL import Image
 import json
 import os
-import requests
 from fpdf import FPDF
 
-# --- 1. PRO APP CONFIG ---
-st.set_page_config(
-    page_title="Pure Agency Command", 
-    page_icon="🚀",
-    layout="wide", 
-    initial_sidebar_state="expanded"
-)
+# --- 1. CONFIG & AUTH ---
+st.set_page_config(page_title="Pure Agency Command", layout="wide")
 
-# --- 2. THE LOGIN GATE ---
 if "password_correct" not in st.session_state:
     st.title("🔐 Agency Command Center")
-    pwd = st.text_input("Enter Agency Access Code:", type="password")
-    if st.button("Unlock Command Center"):
+    pwd = st.text_input("Access Code:", type="password")
+    if st.button("Unlock"):
         if pwd == st.secrets["AGENCY_PASSWORD"]:
             st.session_state["password_correct"] = True
             st.rerun()
-        else:
-            st.error("❌ Access Denied")
+        else: st.error("❌ Denied")
     st.stop()
 
-# --- 3. DATABASE & API SETUP ---
+# --- 2. DATABASE & AI ENGINE ---
 API_KEY = st.secrets["GEMINI_API_KEY"]
 DB_FILE = "client_database.json"
 
@@ -45,141 +37,94 @@ def save_db(data):
 if "clients" not in st.session_state:
     st.session_state.clients = load_db()
 
-# --- 4. THE AI ENGINE (Optimized for 2026 Paid Tier) ---
-def ask_gemini(prompt, system_instruction, image=None):
+def ask_gemini(prompt, sys_inst, image=None):
     client = genai.Client(api_key=API_KEY)
     contents = [prompt]
     if image: contents.append(image)
-    
-    # Retry logic for 429/busy errors
     for attempt in range(3):
         try:
-            response = client.models.generate_content(
-                model='gemini-3-flash-preview', # The latest stable model for 2026
+            return client.models.generate_content(
+                model='gemini-3-flash-preview', 
                 contents=contents,
-                config=types.GenerateContentConfig(system_instruction=system_instruction)
-            )
-            return response.text
+                config=types.GenerateContentConfig(system_instruction=sys_inst)
+            ).text
         except Exception as e:
-            if "429" in str(e):
-                time.sleep(3)
-                continue
-            return f"❌ AI Error: {str(e)}"
-    return "❌ Error: System busy. Please try again in 60 seconds."
+            if "429" in str(e): time.sleep(3); continue
+            return f"❌ Error: {str(e)}"
 
-# --- 5. PDF GENERATOR ---
-def create_pdf(title, content):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(200, 10, txt=title, ln=True, align='C')
-    pdf.ln(10)
-    pdf.set_font("Arial", size=11)
-    # Clean text for PDF compatibility (removes emojis/unsupported symbols)
-    safe_text = content.encode('ascii', 'ignore').decode('ascii')
-    pdf.multi_cell(0, 10, txt=safe_text)
-    return pdf.output(dest='S').encode('latin-1')
+# --- 3. AUTOMATION LISTENER (MeisterTask Bridge) ---
+q = st.query_params
+if "task_topic" in q:
+    st.info(f"🤖 Automation Active: {q['task_topic']}")
+    if q.get("brand") in st.session_state.clients:
+        brand_data = st.session_state.clients[q["brand"]]
+        if st.button("🚀 Draft & Push to SocialPilot"):
+            res = ask_gemini(f"Draft social post for: {q['task_topic']}", brand_data['gem_instructions'])
+            st.code(res)
+    st.divider()
 
-# --- 6. SIDEBAR NAVIGATION ---
-st.sidebar.title("🚀 Elite Command")
+# --- 4. NAVIGATION & TOOLS ---
 mode = st.sidebar.radio("CHOOSE TOOL:", [
-    "Manage Clients & Gems",
-    "Content Factory ✍️", 
-    "6-Month Strategy Lab 📅",
-    "Voice Clone Lab 🎙️",
-    "Viral Hook Lab 🔥", 
-    "Brand Guardian 🛡️",
-    "Strategic Hub (SWOT/Comp)"
+    "Manage Clients & Gems", "Content Factory ✍️", "6-Month Strategy Lab 📅", 
+    "Voice Clone Lab 🎙️", "Viral Hook Lab 🔥", "Brand Guardian 🛡️", "Strategic Hub"
 ])
 
-client_list = list(st.session_state.clients.keys())
-
-# --- 7. AUTOMATION RECEIVER ---
-query_params = st.query_params
-if "task_topic" in query_params:
-    st.info(f"📥 New Task Received: {query_params['task_topic']}")
-
-# --- 8. TOOL LOGIC ---
+clients = list(st.session_state.clients.keys())
 
 if mode == "Manage Clients & Gems":
-    st.title("Manage Clients 👤💎")
-    with st.form("client_form"):
+    st.title("Manage Clients 👤")
+    with st.form("add"):
         name = st.text_input("Brand Name")
-        gem = st.text_area("Base Gem Instructions (Voice, Tone, Rules)", height=200)
-        if st.form_submit_button("Save Brand"):
-            if name:
-                st.session_state.clients[name] = {"gem_instructions": gem, "voice_dna": ""}
-                save_db(st.session_state.clients)
-                st.success(f"Saved {name} successfully!")
-                st.rerun()
+        gem = st.text_area("Instructions", height=200)
+        if st.form_submit_button("Save"):
+            st.session_state.clients[name] = {"gem_instructions": gem, "voice_dna": ""}
+            save_db(st.session_state.clients); st.rerun()
+    for b in clients:
+        if st.button(f"Delete {b}"):
+            del st.session_state.clients[b]; save_db(st.session_state.clients); st.rerun()
 
-    st.divider()
-    for b in client_list:
-        col1, col2 = st.columns([4,1])
-        col1.write(f"🏢 {b}")
-        if col2.button(f"Delete", key=f"del_{b}"):
-            del st.session_state.clients[b]
-            save_db(st.session_state.clients)
-            st.rerun()
-
-elif not client_list:
-    st.warning("Please add a client brand in 'Manage Clients' first.")
-
-elif mode == "Content Factory ✍️":
-    st.title("Content Factory ✍️")
-    selected = st.selectbox("Select Brand:", client_list)
-    topic = st.text_area("What are we promoting?")
-    if st.button("Generate Post", type="primary"):
-        sys = f"{st.session_state.clients[selected]['gem_instructions']}\n{st.session_state.clients[selected].get('voice_dna','')}"
-        with st.spinner("AI is thinking..."):
-            st.write(ask_gemini(f"Write a social media post about {topic}", sys))
+elif not clients: st.warning("Add a brand first!")
 
 elif mode == "6-Month Strategy Lab 📅":
     st.title("Strategy Lab 📅")
-    selected = st.selectbox("Select Client:", client_list)
-    months = st.select_slider("Timeline:", options=["1 Month", "2 Months", "3 Months", "6 Months"])
-    goal = st.text_input("Primary Strategic Goal:")
-    if st.button(f"Generate {months} Strategy", type="primary"):
-        with st.spinner(f"Building your {months} roadmap..."):
-            res = ask_gemini(f"Create a detailed {months} content roadmap for: {goal}", st.session_state.clients[selected]['gem_instructions'])
-            st.markdown(res)
-            st.download_button("📩 Download PDF Strategy", create_pdf(f"{months} Plan", res), f"{selected}_Strategy.pdf")
+    sel = st.selectbox("Brand:", clients)
+    mo = st.select_slider("Timeline:", ["1 Month", "2 Months", "3 Months", "6 Months"])
+    goal = st.text_input("Goal:")
+    if st.button("Generate Strategy"):
+        st.write(ask_gemini(f"Create a {mo} roadmap for {goal}", st.session_state.clients[sel]['gem_instructions']))
+
+elif mode == "Content Factory ✍️":
+    st.title("Content Factory ✍️")
+    sel = st.selectbox("Brand:", clients)
+    topic = st.text_area("Topic:")
+    if st.button("Generate"):
+        st.write(ask_gemini(f"Write a post about {topic}", st.session_state.clients[sel]['gem_instructions']))
 
 elif mode == "Voice Clone Lab 🎙️":
     st.title("Voice Clone Lab 🎙️")
-    selected = st.selectbox("Analyze Voice for:", client_list)
-    posts = st.text_area("Paste 3 successful posts here:", height=200)
-    if st.button("Extract Style DNA"):
-        dna = ask_gemini(f"Extract the linguistic DNA and tone from these posts: {posts}", "Expert Linguist")
-        st.session_state.clients[selected]['voice_dna'] = dna
-        save_db(st.session_state.clients)
-        st.success("Linguistic DNA Captured!")
-        st.write(dna)
+    sel = st.selectbox("Brand:", clients)
+    posts = st.text_area("Paste posts:")
+    if st.button("Clone DNA"):
+        dna = ask_gemini(f"Clone DNA from: {posts}", "Linguist")
+        st.session_state.clients[sel]['voice_dna'] = dna
+        save_db(st.session_state.clients); st.success("Saved!")
 
 elif mode == "Viral Hook Lab 🔥":
     st.title("Viral Hook Lab 🔥")
-    selected = st.selectbox("Select Brand Context:", client_list)
-    topic = st.text_input("Headline/Topic:")
+    sel = st.selectbox("Brand:", clients)
+    topic = st.text_input("Topic:")
     if st.button("Generate 10 Hooks"):
-        st.write(ask_gemini(f"Generate 10 viral hooks for: {topic}", st.session_state.clients[selected]['gem_instructions']))
+        st.write(ask_gemini(f"10 hooks for {topic}", st.session_state.clients[sel]['gem_instructions']))
 
 elif mode == "Brand Guardian 🛡️":
     st.title("Brand Guardian 🛡️")
-    selected = st.selectbox("Audit Client:", client_list)
-    img = st.file_uploader("Upload Image/Graphic", type=["png", "jpg"])
-    if st.button("Run Audit") and img:
-        st.info(ask_gemini("Audit this image for brand consistency.", st.session_state.clients[selected]['gem_instructions'], Image.open(img)))
+    sel = st.selectbox("Brand:", clients)
+    img = st.file_uploader("Upload Image", type=["png", "jpg"])
+    if st.button("Audit") and img:
+        st.write(ask_gemini("Audit this image.", st.session_state.clients[sel]['gem_instructions'], Image.open(img)))
 
-elif mode == "Strategic Hub (SWOT/Comp)":
+elif mode == "Strategic Hub":
     st.title("Strategic Hub 🧠")
-    selected = st.selectbox("Analyze Client:", client_list)
-    t1, t2 = st.tabs(["Competitor Move", "Full SWOT"])
-    with t1:
-        c_img = st.file_uploader("Competitor Post", type=["png", "jpg"])
-        if st.button("Analyze Move"):
-            st.write(ask_gemini("Analyze this competitor and give us a counter-move.", st.session_state.clients[selected]['gem_instructions'], Image.open(c_img) if c_img else None))
-    with t2:
-        if st.button("Run SWOT Analysis"):
-            res = ask_gemini("Generate a full SWOT analysis report.", st.session_state.clients[selected]['gem_instructions'])
-            st.markdown(res)
-            st.download_button("📩 Download SWOT PDF", create_pdf("SWOT Report", res), f"{selected}_SWOT.pdf")
+    sel = st.selectbox("Brand:", clients)
+    if st.button("Run SWOT"):
+        st.write(ask_gemini("Full SWOT analysis.", st.session_state.clients[sel]['gem_instructions']))
