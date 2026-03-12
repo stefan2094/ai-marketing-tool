@@ -1,4 +1,25 @@
-import streamlit as st
+import streamlit as stimport time # Add this at the very top of your app.py
+
+def ask_gemini(prompt, system_instruction, image=None):
+    client = genai.Client(api_key=API_KEY)
+    contents = [prompt]
+    if image: contents.append(image)
+    
+    # Try up to 3 times if we hit a rate limit
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model='gemini-1.5-flash', # Switching to the stable 'Paid' tier model
+                contents=contents,
+                config=types.GenerateContentConfig(system_instruction=system_instruction)
+            )
+            return response.text
+        except Exception as e:
+            if "429" in str(e):
+                time.sleep(2) # Wait 2 seconds and try again
+                continue
+            return f"❌ **Error:** {str(e)}"
+    return "❌ **Error:** Still hitting rate limits after 3 tries. Please wait 60 seconds."
 from google import genai
 from google.genai import types
 from PIL import Image
