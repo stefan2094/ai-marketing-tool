@@ -1,25 +1,5 @@
-import streamlit as stimport time # Add this at the very top of your app.py
-
-def ask_gemini(prompt, system_instruction, image=None):
-    client = genai.Client(api_key=API_KEY)
-    contents = [prompt]
-    if image: contents.append(image)
-    
-    # Try up to 3 times if we hit a rate limit
-    for attempt in range(3):
-        try:
-            response = client.models.generate_content(
-                model='gemini-1.5-flash', # Switching to the stable 'Paid' tier model
-                contents=contents,
-                config=types.GenerateContentConfig(system_instruction=system_instruction)
-            )
-            return response.text
-        except Exception as e:
-            if "429" in str(e):
-                time.sleep(2) # Wait 2 seconds and try again
-                continue
-            return f"❌ **Error:** {str(e)}"
-    return "❌ **Error:** Still hitting rate limits after 3 tries. Please wait 60 seconds."
+import streamlit as st
+import time
 from google import genai
 from google.genai import types
 from PIL import Image
@@ -60,20 +40,27 @@ def save_db(data):
 if "clients" not in st.session_state:
     st.session_state.clients = load_db()
 
-# --- 4. THE AI ENGINE ---
+# --- 4. THE AI ENGINE (With Paid-Tier Logic & Retry) ---
 def ask_gemini(prompt, system_instruction, image=None):
-    try:
-        client = genai.Client(api_key=API_KEY)
-        contents = [prompt]
-        if image: contents.append(image)
-        response = client.models.generate_content(
-            model='gemini-2.0-flash', 
-            contents=contents,
-            config=types.GenerateContentConfig(system_instruction=system_instruction)
-        )
-        return response.text
-    except Exception as e:
-        return f"❌ **Error:** {str(e)}"
+    client = genai.Client(api_key=API_KEY)
+    contents = [prompt]
+    if image: contents.append(image)
+    
+    # We try 3 times to bypass temporary '429' busy signals
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model='gemini-1.5-flash', # Stable model for Paid Tier
+                contents=contents,
+                config=types.GenerateContentConfig(system_instruction=system_instruction)
+            )
+            return response.text
+        except Exception as e:
+            if "429" in str(e):
+                time.sleep(3) # Wait 3 seconds and try again
+                continue
+            return f"❌ **Error:** {str(e)}"
+    return "❌ **Final Error:** Still hitting limits. Please wait 60 seconds."
 
 # --- 5. PDF GENERATOR ---
 def create_pdf(title, content):
@@ -101,17 +88,16 @@ mode = st.sidebar.radio("CHOOSE TOOL:", [
 
 client_list = list(st.session_state.clients.keys())
 
-# --- TOOL 1: MANAGE CLIENTS (Always visible) ---
+# --- 7. TOOL LOGIC ---
 if mode == "Manage Clients & Gems":
     st.title("Manage Clients 👤💎")
     with st.form("client_form"):
         name = st.text_input("Brand Name")
-        gem = st.text_area("Base Gem Instructions (Tone, Target, Rules)", height=200)
+        gem = st.text_area("Base Gem Instructions", height=200)
         if st.form_submit_button("Save Brand"):
             st.session_state.clients[name] = {"gem_instructions": gem, "voice_dna": ""}
             save_db(st.session_state.clients)
             st.rerun()
-    st.divider()
     for b in client_list:
         if st.button(f"Delete {b}"):
             del st.session_state.clients[b]
@@ -119,69 +105,31 @@ if mode == "Manage Clients & Gems":
             st.rerun()
 
 elif not client_list:
-    st.warning("⚠️ Add a brand in 'Manage Clients' first to unlock tools!")
+    st.warning("Add a brand in 'Manage Clients' first!")
 
-# --- TOOL 2: CONTENT FACTORY ---
+elif mode == "6-Month Strategy Lab 📅":
+    st.title("Strategy Lab 📅")
+    selected = st.selectbox("Select Client:", client_list)
+    duration = st.select_slider("Timeline:", options=["1 Month", "2 Months", "3 Months", "6 Months"])
+    goal = st.text_input("Strategic Goal:")
+    if st.button(f"Generate {duration} Plan"):
+        with st.spinner("Generating..."):
+            res = ask_gemini(f"Create a detailed {duration} content calendar for {goal}", st.session_state.clients[selected]['gem_instructions'])
+            st.markdown(res)
+            st.download_button("📩 Download PDF", create_pdf(f"{duration} Strategy", res), f"Strategy_{selected}.pdf")
+
+elif mode == "Strategic Hub (SWOT/Comp)":
+    st.title("Strategic Analysis Hub 🧠")
+    selected = st.selectbox("Select Client:", client_list)
+    if st.button("Generate SWOT"):
+        res = ask_gemini("Generate a full SWOT analysis.", st.session_state.clients[selected]['gem_instructions'])
+        st.markdown(res)
+        st.download_button("📩 Download PDF", create_pdf("SWOT Report", res), f"SWOT_{selected}.pdf")
+
 elif mode == "Content Factory ✍️":
     st.title("Content Factory ✍️")
     selected = st.selectbox("Select Brand:", client_list)
-    topic = st.text_area("What are we promoting today?")
+    topic = st.text_area("Topic:")
     if st.button("Generate Post"):
-        sys = f"{st.session_state.clients[selected]['gem_instructions']}\n{st.session_state.clients[selected].get('voice_dna','')}"
-        st.write(ask_gemini(f"Write a social post about {topic}", sys))
-
-# --- TOOL 3: 6-MONTH STRATEGY ---
-elif mode == "6-Month Strategy Lab 📅":
-    st.title("Strategy Lab 📅")
-    selected = st.selectbox("Select Brand:", client_list)
-    months = st.select_slider("Select Timeline:", options=["1 Month", "2 Months", "3 Months", "6 Months"])
-    goal = st.text_input("Main Goal (e.g., Sales, Awareness):")
-    if st.button("Generate Roadmap"):
-        res = ask_gemini(f"Create a detailed {months} content roadmap for: {goal}", st.session_state.clients[selected]['gem_instructions'])
-        st.markdown(res)
-        st.download_button("📩 Download PDF", create_pdf(f"{months} Roadmap", res), f"Strategy_{selected}.pdf")
-
-# --- TOOL 4: VOICE CLONE LAB ---
-elif mode == "Voice Clone Lab 🎙️":
-    st.title("Voice Clone Lab 🎙️")
-    selected = st.selectbox("Select Brand:", client_list)
-    posts = st.text_area("Paste 3 successful posts here to clone the style:", height=200)
-    if st.button("Extract DNA"):
-        dna = ask_gemini(f"Analyze the writing style and linguistic DNA of these posts: {posts}", "Expert Linguist")
-        st.session_state.clients[selected]['voice_dna'] = dna
-        save_db(st.session_state.clients)
-        st.success("Style DNA Saved!")
-        st.write(dna)
-
-# --- TOOL 5: VIRAL HOOK LAB ---
-elif mode == "Viral Hook Lab 🔥":
-    st.title("Viral Hook Lab 🔥")
-    selected = st.selectbox("Select Brand:", client_list)
-    topic = st.text_input("Enter Topic/Product:")
-    if st.button("Generate 10 Viral Hooks"):
-        res = ask_gemini(f"Generate 10 viral psychology hooks for: {topic}", st.session_state.clients[selected]['gem_instructions'])
-        st.write(res)
-
-# --- TOOL 6: BRAND GUARDIAN ---
-elif mode == "Brand Guardian 🛡️":
-    st.title("Brand Guardian 🛡️")
-    selected = st.selectbox("Audit Brand:", client_list)
-    img_file = st.file_uploader("Upload Image to Audit", type=["png", "jpg"])
-    if st.button("Analyze Image") and img_file:
-        res = ask_gemini("Analyze this image for brand consistency.", st.session_state.clients[selected]['gem_instructions'], Image.open(img_file))
-        st.info(res)
-
-# --- TOOL 7: STRATEGIC HUB ---
-elif mode == "Strategic Hub (SWOT/Comp)":
-    st.title("Strategic Hub 🧠")
-    selected = st.selectbox("Select Brand:", client_list)
-    tab1, tab2 = st.tabs(["Competitor Analysis", "SWOT Analysis"])
-    with tab1:
-        c_img = st.file_uploader("Competitor Post Screenshot", type=["png", "jpg"])
-        if st.button("Analyze Competitor"):
-            st.write(ask_gemini("How can we beat this?", st.session_state.clients[selected]['gem_instructions'], Image.open(c_img) if c_img else None))
-    with tab2:
-        if st.button("Generate SWOT"):
-            res = ask_gemini("Generate a full SWOT analysis.", st.session_state.clients[selected]['gem_instructions'])
-            st.markdown(res)
-            st.download_button("📩 Download PDF", create_pdf("SWOT Report", res), f"SWOT_{selected}.pdf")
+        sys_inst = f"{st.session_state.clients[selected]['gem_instructions']}\n{st.session_state.clients[selected].get('voice_dna','')}"
+        st.write(ask_gemini(f"Write a social post about {topic}.", sys_inst))
