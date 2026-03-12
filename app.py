@@ -45,7 +45,7 @@ def save_db(data):
 if "clients" not in st.session_state:
     st.session_state.clients = load_db()
 
-# --- 4. THE AI ENGINE (Optimized for Paid Tier) ---
+# --- 4. THE AI ENGINE (Optimized for 2026 Paid Tier) ---
 def ask_gemini(prompt, system_instruction, image=None):
     client = genai.Client(api_key=API_KEY)
     contents = [prompt]
@@ -55,7 +55,7 @@ def ask_gemini(prompt, system_instruction, image=None):
     for attempt in range(3):
         try:
             response = client.models.generate_content(
-                model='gemini-1.5-flash', # Corrected stable model ID
+                model='gemini-3-flash-preview', # The latest stable model for 2026
                 contents=contents,
                 config=types.GenerateContentConfig(system_instruction=system_instruction)
             )
@@ -94,10 +94,10 @@ mode = st.sidebar.radio("CHOOSE TOOL:", [
 
 client_list = list(st.session_state.clients.keys())
 
-# --- 7. AUTOMATION RECEIVER (Hidden Bridge) ---
+# --- 7. AUTOMATION RECEIVER ---
 query_params = st.query_params
 if "task_topic" in query_params:
-    st.info(f"📥 New Task from MeisterTask: {query_params['task_topic']}")
+    st.info(f"📥 New Task Received: {query_params['task_topic']}")
 
 # --- 8. TOOL LOGIC ---
 
@@ -141,7 +141,7 @@ elif mode == "6-Month Strategy Lab 📅":
     goal = st.text_input("Primary Strategic Goal:")
     if st.button(f"Generate {months} Strategy", type="primary"):
         with st.spinner(f"Building your {months} roadmap..."):
-            res = ask_gemini(f"Create a high-level {months} content roadmap for: {goal}", st.session_state.clients[selected]['gem_instructions'])
+            res = ask_gemini(f"Create a detailed {months} content roadmap for: {goal}", st.session_state.clients[selected]['gem_instructions'])
             st.markdown(res)
             st.download_button("📩 Download PDF Strategy", create_pdf(f"{months} Plan", res), f"{selected}_Strategy.pdf")
 
